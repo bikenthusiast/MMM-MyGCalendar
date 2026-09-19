@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-09-19
+
+### Added
+
+- Optional today panel (`showTodayPanel`): a daily agenda card left of the 4-week grid. Highlights the running meeting, dims finished ones, drops finished meetings first when the day overflows, and re-renders when a meeting starts or ends.
+- `locale` option for month names, weekday headers, dates and times (default `"en-US"`, unchanged behavior).
+- `allDayText` option for the all-day label.
+
 ## [1.2.0] - 2026-06-30
 
 ### Added

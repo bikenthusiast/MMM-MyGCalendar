@@ -96,7 +96,35 @@ npm install
 | `fullWidth`          | `false`        | Set `true` to remove border-radius and shadow for a flush edge-to-edge look |
 | `showHeader`         | `true`         | Set `false` to hide the month-range header bar above the calendar grid |
 | `colorRules`         | `[]`           | Keyword-based color overrides — see below                        |
+| `locale`             | `"en-US"`      | Locale for month names, weekday headers, dates and times (e.g. `"de-DE"` for 24h German format) |
+| `showTodayPanel`     | `false`        | Show a daily agenda card for today to the left of the 4-week grid — see below |
+| `todayPanelWidth`    | `"300px"`      | Width of the today panel (any CSS length)                        |
+| `todayPanelTitle`    | `"Today"`      | Heading of the today panel                                       |
+| `todayPanelEmptyText`| `"No events today"` | Text shown when there are no events today                   |
+| `allDayText`         | `"All day"`    | Label for all-day events in the today panel and day modal        |
 | `debug`              | `false`        | Log raw event properties to the MagicMirror console (useful for troubleshooting) |
+
+### Today panel
+
+Set `showTodayPanel: true` to add a daily agenda next to the 4-week grid. It lists all of today's events — all-day events first, then timed events in order — with time, title and location, using the same colors as the grid.
+
+- The running meeting is highlighted, finished meetings are dimmed and struck through.
+- The panel always matches the height of the grid. If there are more meetings than fit, finished ones are dropped from the top first so the current and upcoming meetings stay visible; anything still left over fades out at the bottom.
+- The panel re-renders automatically when a meeting starts or ends (checked once per minute).
+- Click an entry to open the event detail modal.
+
+```javascript
+config: {
+  locale: "de-DE",
+  weekStartsOnMonday: true,
+  showTodayPanel: true,
+  todayPanelWidth: "300px",
+  todayPanelTitle: "Heute",
+  todayPanelEmptyText: "Keine Termine heute",
+  allDayText: "Ganztägig",
+  calendars: [...]
+}
+```
 
 ### Per-event colors with `colorRules`
 

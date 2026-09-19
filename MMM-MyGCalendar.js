@@ -10,6 +10,12 @@ Module.register("MMM-MyGCalendar", {
     showHeader: true,
     debug: false,
     colorRules: [],
+    locale: "en-US",
+    showTodayPanel: false,
+    todayPanelWidth: "300px",
+    todayPanelTitle: "Today",
+    todayPanelEmptyText: "No events today",
+    allDayText: "All day",
   },
 
   // Maps Google Calendar color values → hex.
@@ -52,6 +58,7 @@ Module.register("MMM-MyGCalendar", {
     }));
     this.sendSocketNotification("GCAL_INIT", this.config);
     this.scheduleMidnightRefresh();
+    if (this.config.showTodayPanel) this.scheduleTodayPanelTick();
   },
 
   getStyles() {
@@ -75,6 +82,32 @@ Module.register("MMM-MyGCalendar", {
       this.updateDom(0);
       this.scheduleMidnightRefresh();
     }, next - now);
+  },
+
+  // Re-renders once a minute, but only when a meeting in the today panel
+  // changes state (upcoming → now → past), so the grid is not redrawn needlessly.
+  scheduleTodayPanelTick() {
+    this._todayPanelSignature = null;
+    setInterval(() => {
+      if (!this.loaded) return;
+      const sig = this.getTodayPanelSignature();
+      if (sig !== this._todayPanelSignature) this.updateDom(0);
+    }, 60 * 1000);
+  },
+
+  getTodayPanelSignature() {
+    const now = new Date();
+    return this.getEventsForDay(now)
+      .map((ev) => this.getTodayEventState(ev, now))
+      .join("");
+  },
+
+  // "p" = past, "n" = now running, "u" = upcoming, "a" = all-day
+  getTodayEventState(ev, now) {
+    if (ev.allDay) return "a";
+    if (new Date(ev.end) <= now) return "p";
+    if (new Date(ev.start) <= now) return "n";
+    return "u";
   },
 
   // ── Date helpers ──────────────────────────────────────────────
@@ -128,7 +161,17 @@ Module.register("MMM-MyGCalendar", {
     card.appendChild(this.buildDayHeaders());
     card.appendChild(this.buildGrid());
 
-    wrapper.appendChild(card);
+    if (this.config.showTodayPanel) {
+      const layout = document.createElement("div");
+      layout.className = "gcal-layout";
+      layout.style.setProperty("--gcal-today-panel-width", this.config.todayPanelWidth || "300px");
+      layout.appendChild(this.buildTodayPanel());
+      card.classList.add("gcal-main-card");
+      layout.appendChild(card);
+      wrapper.appendChild(layout);
+    } else {
+      wrapper.appendChild(card);
+    }
 
     this.ensureModal();
 
@@ -140,23 +183,27 @@ Module.register("MMM-MyGCalendar", {
     const header = document.createElement("div");
     header.className = "gcal-header";
 
-    const startLabel = displayStart.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    const endLabel = displayEnd.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const startLabel = displayStart.toLocaleDateString(this.config.locale, { month: "long", year: "numeric" });
+    const endLabel = displayEnd.toLocaleDateString(this.config.locale, { month: "long", year: "numeric" });
 
     const title = document.createElement("span");
     title.className = "gcal-month-title";
     title.textContent = startLabel === endLabel
       ? startLabel
-      : `${displayStart.toLocaleDateString("en-US", { month: "long" })} – ${endLabel}`;
+      : `${displayStart.toLocaleDateString(this.config.locale, { month: "long" })} – ${endLabel}`;
 
     header.appendChild(title);
     return header;
   },
 
   buildDayHeaders() {
-    const days = this.config.weekStartsOnMonday
-      ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-      : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    // 2023-01-01 was a Sunday; build localized short weekday names from it.
+    const fmt = new Intl.DateTimeFormat(this.config.locale, { weekday: "short" });
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(2023, 0, 1 + i + (this.config.weekStartsOnMonday ? 1 : 0));
+      days.push(fmt.format(d).replace(/\.$/, ""));
+    }
 
     const row = document.createElement("div");
     row.className = "gcal-day-headers";
@@ -287,7 +334,7 @@ Module.register("MMM-MyGCalendar", {
     if (date.getDate() === 1) {
       const monthTag = document.createElement("span");
       monthTag.className = "gcal-day-month-tag";
-      monthTag.textContent = date.toLocaleDateString("en-US", { month: "short" });
+      monthTag.textContent = date.toLocaleDateString(this.config.locale, { month: "short" });
       numWrap.appendChild(monthTag);
     }
 
@@ -430,6 +477,81 @@ Module.register("MMM-MyGCalendar", {
     });
   },
 
+  // ── Today panel ───────────────────────────────────────────────
+
+  buildTodayPanel() {
+    const now = new Date();
+    const panel = document.createElement("div");
+    panel.className = "gcal-card gcal-today-panel";
+
+    const header = document.createElement("div");
+    header.className = "gcal-today-panel-header";
+
+    const title = document.createElement("span");
+    title.className = "gcal-today-panel-title";
+    title.textContent = this.config.todayPanelTitle;
+
+    const date = document.createElement("span");
+    date.className = "gcal-today-panel-date";
+    date.textContent = now.toLocaleDateString(this.config.locale, { weekday: "long", day: "numeric", month: "long" });
+
+    header.appendChild(title);
+    header.appendChild(date);
+    panel.appendChild(header);
+
+    const list = document.createElement("div");
+    list.className = "gcal-today-panel-list";
+
+    const events = this.getEventsForDay(now);
+    this._todayPanelSignature = events.map((ev) => this.getTodayEventState(ev, now)).join("");
+
+    if (events.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "gcal-today-panel-empty";
+      empty.textContent = this.config.todayPanelEmptyText;
+      list.appendChild(empty);
+    }
+
+    events.forEach((ev) => {
+      const item = this.buildDayEventItem(ev, null);
+      item.classList.add("gcal-today-panel-item");
+      const state = this.getTodayEventState(ev, now);
+      if (state === "p") item.classList.add("gcal-today-panel-item--past");
+      if (state === "n") item.classList.add("gcal-today-panel-item--now");
+      list.appendChild(item);
+    });
+
+    // The list is absolutely positioned inside the body so the panel never
+    // grows taller than the grid next to it; overflow fades out at the bottom.
+    const body = document.createElement("div");
+    body.className = "gcal-today-panel-body";
+    body.appendChild(list);
+    panel.appendChild(body);
+
+    // If the day has more meetings than fit, drop finished ones from the top
+    // (oldest first) so the current and upcoming meetings stay visible.
+    // Runs once MagicMirror has attached the DOM (after its fade animation),
+    // since measuring requires layout.
+    this.trimPastTodayEvents(list, 20);
+    return panel;
+  },
+
+  trimPastTodayEvents(list, retries) {
+    if (!list.isConnected) {
+      if (retries > 0) setTimeout(() => this.trimPastTodayEvents(list, retries - 1), 100);
+      return;
+    }
+    const past = list.querySelectorAll(".gcal-today-panel-item--past");
+    for (const item of past) {
+      if (list.scrollHeight <= list.clientHeight) break;
+      item.classList.add("gcal-today-panel-item--hidden");
+    }
+  },
+
+  formatTime(date) {
+    return date.toLocaleTimeString(this.config.locale, { hour: "numeric", minute: "2-digit" });
+  },
+
   // ── Modal infrastructure ──────────────────────────────────────
 
   ensureModal() {
@@ -485,7 +607,7 @@ Module.register("MMM-MyGCalendar", {
 
     const titleEl = document.createElement("h3");
     titleEl.className = "gcal-modal-title";
-    titleEl.textContent = date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+    titleEl.textContent = date.toLocaleDateString(this.config.locale, { weekday: "long", month: "long", day: "numeric" });
 
     const subtitle = document.createElement("span");
     subtitle.className = "gcal-modal-subtitle";
@@ -538,8 +660,8 @@ Module.register("MMM-MyGCalendar", {
     const end = new Date(ev.end);
 
     const timeStr = ev.allDay
-      ? "All day"
-      : `${start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} – ${end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+      ? this.config.allDayText
+      : `${this.formatTime(start)} – ${this.formatTime(end)}`;
 
     const time = document.createElement("span");
     time.className = "gcal-day-event-time";
@@ -633,11 +755,11 @@ Module.register("MMM-MyGCalendar", {
     const end = new Date(ev.end);
 
     const dateStr = ev.allDay
-      ? start.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+      ? start.toLocaleDateString(this.config.locale, { weekday: "long", month: "long", day: "numeric", year: "numeric" })
       : (() => {
-          const day = start.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-          const t1 = start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-          const t2 = end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+          const day = start.toLocaleDateString(this.config.locale, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+          const t1 = start.toLocaleTimeString(this.config.locale, { hour: "numeric", minute: "2-digit" });
+          const t2 = end.toLocaleTimeString(this.config.locale, { hour: "numeric", minute: "2-digit" });
           return `${day}\n${t1} – ${t2}`;
         })();
 
