@@ -16,6 +16,16 @@ Module.register("MMM-MyGCalendar", {
     todayPanelTitle: "Today",
     todayPanelEmptyText: "No events today",
     allDayText: "All day",
+    layout: "card",
+    weeks: 3,
+    todayMaxEvents: 4,
+    nowText: "Now",
+    endsInText: "{time} left",
+    moreText: "+{n} more",
+    todayDoneText: "No more events today",
+    staleText: "As of {time}",
+    privateTitle: "Busy",
+    loadingText: "Loading calendar…",
   },
 
   // Maps Google Calendar color values → hex.
@@ -49,6 +59,8 @@ Module.register("MMM-MyGCalendar", {
 
   events: [],
   loaded: false,
+  updatedAt: null,
+  failedCalendars: [],
   currentDayModalDate: null,
 
   start() {
@@ -58,7 +70,12 @@ Module.register("MMM-MyGCalendar", {
     }));
     this.sendSocketNotification("GCAL_INIT", this.config);
     this.scheduleMidnightRefresh();
-    if (this.config.showTodayPanel) this.scheduleTodayPanelTick();
+    if (this.config.showTodayPanel || this.isMirror()) this.scheduleTodayPanelTick();
+  },
+
+  // The mirror layout is read from across the room: no pointer, no modals.
+  isMirror() {
+    return this.config.layout === "mirror";
   },
 
   getStyles() {
@@ -67,7 +84,12 @@ Module.register("MMM-MyGCalendar", {
 
   socketNotificationReceived(notification, payload) {
     if (notification === "GCAL_EVENTS") {
-      this.events = payload;
+      // No calendar has loaded yet: keep showing the loading state rather
+      // than an empty day that looks real.
+      if (payload.updatedAt === null) return;
+      this.events = payload.events;
+      this.updatedAt = payload.updatedAt;
+      this.failedCalendars = payload.failed;
       this.loaded = true;
       this.updateDom(300);
     }
@@ -84,15 +106,21 @@ Module.register("MMM-MyGCalendar", {
     }, next - now);
   },
 
-  // Re-renders once a minute, but only when a meeting in the today panel
-  // changes state (upcoming → now → past), so the grid is not redrawn needlessly.
+  // Ticks at the start of every minute. Re-renders only when a meeting in the
+  // today panel changes state (upcoming → now → past), so the grid is not
+  // redrawn needlessly; otherwise just rewrites the relative times in place.
   scheduleTodayPanelTick() {
     this._todayPanelSignature = null;
-    setInterval(() => {
+    const tick = () => {
       if (!this.loaded) return;
       const sig = this.getTodayPanelSignature();
       if (sig !== this._todayPanelSignature) this.updateDom(0);
-    }, 60 * 1000);
+      else this.refreshRelativeLabels();
+    };
+    setTimeout(() => {
+      tick();
+      setInterval(tick, 60 * 1000);
+    }, 60 * 1000 - (Date.now() % (60 * 1000)) + 500);
   },
 
   getTodayPanelSignature() {
@@ -124,13 +152,18 @@ Module.register("MMM-MyGCalendar", {
     const weekStart = new Date(today);
     weekStart.setDate(today.getDate() - offset);
 
+    // The card layout leads with last week; the mirror layout starts this week.
     const displayStart = new Date(weekStart);
-    displayStart.setDate(weekStart.getDate() - 7);
+    if (!this.isMirror()) displayStart.setDate(weekStart.getDate() - 7);
 
     const displayEnd = new Date(displayStart);
-    displayEnd.setDate(displayStart.getDate() + 27);
+    displayEnd.setDate(displayStart.getDate() + this.getWeekCount() * 7 - 1);
 
     return { displayStart, displayEnd, today, currentWeekStart: weekStart };
+  },
+
+  getWeekCount() {
+    return this.isMirror() ? Math.max(1, this.config.weeks) : 4;
   },
 
   // ── DOM builders ──────────────────────────────────────────────
@@ -140,15 +173,29 @@ Module.register("MMM-MyGCalendar", {
 
     const wrapper = document.createElement("div");
     wrapper.className = "gcal-wrapper" + (this.config.fullWidth ? " gcal-full-width" : "");
-    wrapper.style.setProperty("--gcal-bg", this.config.backgroundColor || "#ffffff");
+    // The mirror layout keeps the stylesheet's transparent background.
+    if (this.isMirror()) wrapper.classList.add("gcal-mirror");
+    else wrapper.style.setProperty("--gcal-bg", this.config.backgroundColor || "#ffffff");
     wrapper.style.setProperty("--gcal-past-opacity", String(this.config.pastWeekOpacity ?? 0.45));
     wrapper.style.setProperty("--gcal-max-events", String(this.config.maxEventsPerDay ?? 3));
 
     if (!this.loaded) {
       const card = document.createElement("div");
       card.className = "gcal-card gcal-loading-card";
-      card.innerHTML = '<div class="gcal-loading"><div class="gcal-spinner"></div><span>Loading calendar…</span></div>';
+      card.innerHTML = '<div class="gcal-loading"><div class="gcal-spinner"></div><span></span></div>';
+      card.querySelector("span").textContent = this.config.loadingText;
       wrapper.appendChild(card);
+      return wrapper;
+    }
+
+    if (this.isMirror()) {
+      wrapper.appendChild(this.buildMirrorToday());
+      const month = document.createElement("div");
+      month.className = "gcal-mirror-month";
+      if (this.config.showHeader !== false) month.appendChild(this.buildHeader(displayStart));
+      month.appendChild(this.buildDayHeaders());
+      month.appendChild(this.buildGrid());
+      wrapper.appendChild(month);
       return wrapper;
     }
 
@@ -156,7 +203,13 @@ Module.register("MMM-MyGCalendar", {
     card.className = "gcal-card";
 
     if (this.config.showHeader !== false) {
-      card.appendChild(this.buildHeader(displayStart));
+      const header = this.buildHeader(displayStart);
+      const stale = this.buildStaleNote();
+      if (stale) header.appendChild(stale);
+      card.appendChild(header);
+    } else {
+      const stale = this.buildStaleNote();
+      if (stale) wrapper.appendChild(stale);
     }
     card.appendChild(this.buildDayHeaders());
     card.appendChild(this.buildGrid());
@@ -221,7 +274,7 @@ Module.register("MMM-MyGCalendar", {
     const grid = document.createElement("div");
     grid.className = "gcal-grid";
 
-    for (let w = 0; w < 4; w++) {
+    for (let w = 0; w < this.getWeekCount(); w++) {
       const row = document.createElement("div");
       row.className = "gcal-week";
 
@@ -240,7 +293,8 @@ Module.register("MMM-MyGCalendar", {
 
       weekDates.forEach((date, d) => {
         const isToday = date.toDateString() === today.toDateString();
-        const isPast = date < currentWeekStart;
+        // Card: the leading past week is dimmed. Mirror: days already over this week.
+        const isPast = date < (this.isMirror() ? today : currentWeekStart);
 
         const max = this.config.maxEventsPerDay ?? 3;
         const spanSlots = new Array(max).fill(null);
@@ -344,10 +398,12 @@ Module.register("MMM-MyGCalendar", {
     numWrap.appendChild(num);
 
     // Click the date number → day modal
-    numWrap.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.showDayModal(new Date(date));
-    });
+    if (!this.isMirror()) {
+      numWrap.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showDayModal(new Date(date));
+      });
+    }
 
     topRow.appendChild(numWrap);
 
@@ -359,10 +415,12 @@ Module.register("MMM-MyGCalendar", {
       badge.className = "gcal-day-more-badge";
       badge.textContent = `+${eventsForDay.length - max}`;
       // Clicking the overflow badge also opens the day modal
-      badge.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.showDayModal(new Date(date));
-      });
+      if (!this.isMirror()) {
+        badge.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.showDayModal(new Date(date));
+        });
+      }
       topRow.appendChild(badge);
     }
 
@@ -417,10 +475,12 @@ Module.register("MMM-MyGCalendar", {
     chip.style.setProperty("--ev-color", color);
     chip.title = ev.title;
 
-    chip.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.showModal(ev, null);
-    });
+    if (!this.isMirror()) {
+      chip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showModal(ev, null);
+      });
+    }
 
     return chip;
   },
@@ -445,10 +505,12 @@ Module.register("MMM-MyGCalendar", {
       chip.appendChild(label);
     }
 
-    chip.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this.showModal(ev, null);
-    });
+    if (!this.isMirror()) {
+      chip.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.showModal(ev, null);
+      });
+    }
 
     return chip;
   },
@@ -550,6 +612,149 @@ Module.register("MMM-MyGCalendar", {
 
   formatTime(date) {
     return date.toLocaleTimeString(this.config.locale, { hour: "numeric", minute: "2-digit" });
+  },
+
+  // Shown only while a calendar fails to load: how old the data on screen is.
+  buildStaleNote() {
+    if (!this.failedCalendars.length || this.updatedAt === null) return null;
+    const at = new Date(this.updatedAt);
+    const time = at.toDateString() === new Date().toDateString()
+      ? this.formatTime(at)
+      : at.toLocaleString(this.config.locale, { day: "numeric", month: "numeric", hour: "numeric", minute: "2-digit" });
+    const note = document.createElement("span");
+    note.className = "gcal-stale";
+    note.textContent = this.config.staleText.replace("{time}", time);
+    return note;
+  },
+
+  // ── Mirror layout: today ──────────────────────────────────────
+
+  // Stacked above the grid: a header line, the running or next meeting as a
+  // large hero with a relative time, then the rest of today in one list.
+  // Finished meetings are left out.
+  buildMirrorToday() {
+    const now = new Date();
+    const events = this.getEventsForDay(now);
+    this._todayPanelSignature = events.map((ev) => this.getTodayEventState(ev, now)).join("");
+    this._relLabels = [];
+
+    const section = document.createElement("div");
+    section.className = "gcal-mirror-today";
+
+    const header = document.createElement("div");
+    header.className = "gcal-mirror-today-header";
+    header.appendChild(this.mirrorSpan("gcal-mirror-today-title", this.config.todayPanelTitle));
+    header.appendChild(this.mirrorSpan("gcal-mirror-today-date",
+      now.toLocaleDateString(this.config.locale, { weekday: "long", day: "numeric", month: "long" })));
+    const stale = this.buildStaleNote();
+    if (stale) header.appendChild(stale);
+    section.appendChild(header);
+
+    const hero = this.pickHeroEvent(events, now);
+    if (hero) section.appendChild(this.buildMirrorHero(hero, now));
+
+    const rest = events.filter((ev) => ev !== hero && this.getTodayEventState(ev, now) !== "p");
+    const max = Math.max(0, this.config.todayMaxEvents);
+    if (rest.length && max > 0) {
+      const list = document.createElement("div");
+      list.className = "gcal-mirror-list";
+      rest.slice(0, max).forEach((ev) => list.appendChild(this.buildMirrorRow(ev)));
+      section.appendChild(list);
+    }
+
+    let note = null;
+    if (events.length === 0) note = this.config.todayPanelEmptyText;
+    else if (!hero && rest.length === 0) note = this.config.todayDoneText;
+    else if (rest.length > max) note = this.config.moreText.replace("{n}", rest.length - max);
+    if (note) section.appendChild(this.mirrorSpan("gcal-mirror-note", note));
+
+    return section;
+  },
+
+  // The running meeting that started last, else the next one to start.
+  pickHeroEvent(events, now) {
+    const running = events.filter((ev) => this.getTodayEventState(ev, now) === "n");
+    if (running.length) return running.reduce((a, b) => (new Date(b.start) > new Date(a.start) ? b : a));
+    return events.find((ev) => this.getTodayEventState(ev, now) === "u") || null;
+  },
+
+  buildMirrorHero(ev, now) {
+    const hero = document.createElement("div");
+    hero.className = "gcal-mirror-hero";
+    hero.style.setProperty("--ev-color", this.getEventColor(ev));
+
+    const bar = document.createElement("div");
+    bar.className = "gcal-mirror-bar";
+
+    const body = document.createElement("div");
+    body.className = "gcal-mirror-hero-body";
+
+    const rel = this.mirrorSpan("gcal-mirror-rel", this.formatRelative(ev, now));
+    this._relLabels.push({ el: rel, ev });
+
+    const line = document.createElement("div");
+    line.className = "gcal-mirror-hero-line";
+    line.appendChild(this.mirrorSpan("gcal-mirror-time", this.formatTime(new Date(ev.start))));
+    line.appendChild(this.mirrorSpan("gcal-mirror-title", ev.title));
+
+    body.appendChild(rel);
+    body.appendChild(line);
+    hero.appendChild(bar);
+    hero.appendChild(body);
+    return hero;
+  },
+
+  // The row uses display: contents, so bar, time and title of every row
+  // share the list's grid columns and line up.
+  buildMirrorRow(ev) {
+    const row = document.createElement("div");
+    row.className = "gcal-mirror-item";
+    row.style.setProperty("--ev-color", this.getEventColor(ev));
+
+    const bar = document.createElement("div");
+    bar.className = "gcal-mirror-bar";
+    row.appendChild(bar);
+    if (ev.allDay) {
+      // All-day events come first without a time, so a long all-day label
+      // doesn't widen the time column for every other row.
+      row.appendChild(this.mirrorSpan("gcal-mirror-title gcal-mirror-allday", ev.title));
+    } else {
+      row.appendChild(this.mirrorSpan("gcal-mirror-time", this.formatTime(new Date(ev.start))));
+      row.appendChild(this.mirrorSpan("gcal-mirror-title", ev.title));
+    }
+    return row;
+  },
+
+  mirrorSpan(className, text) {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = text;
+    return span;
+  },
+
+  // "in 40 min." before a meeting starts, "Now · 25 min left" while it runs.
+  formatRelative(ev, now) {
+    const start = new Date(ev.start);
+    if (start > now) {
+      const minutes = Math.ceil((start - now) / 60000);
+      const rtf = new Intl.RelativeTimeFormat(this.config.locale, { style: "short" });
+      return minutes < 60 ? rtf.format(minutes, "minute") : rtf.format(Math.round(minutes / 60), "hour");
+    }
+    const left = this.formatDuration(new Date(ev.end) - now);
+    return `${this.config.nowText} · ${this.config.endsInText.replace("{time}", left)}`;
+  },
+
+  formatDuration(ms) {
+    const minutes = Math.max(1, Math.ceil(ms / 60000));
+    const [value, unit] = minutes < 60 ? [minutes, "minute"] : [Math.round(minutes / 60), "hour"];
+    return new Intl.NumberFormat(this.config.locale, { style: "unit", unit, unitDisplay: "short" }).format(value);
+  },
+
+  refreshRelativeLabels() {
+    const now = new Date();
+    (this._relLabels || []).forEach(({ el, ev }) => {
+      el.textContent = this.formatRelative(ev, now);
+    });
   },
 
   // ── Modal infrastructure ──────────────────────────────────────
