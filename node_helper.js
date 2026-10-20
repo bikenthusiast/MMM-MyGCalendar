@@ -6,6 +6,8 @@ module.exports = NodeHelper.create({
     console.log("[MMM-MyGCalendar] Node helper started");
     this.config = null;
     this.updateTimer = null;
+    // Last successful fetch per calendar URL: { events, fetchedAt }
+    this.cache = {};
   },
 
   stop() {
@@ -31,21 +33,32 @@ module.exports = NodeHelper.create({
     const windowStart = new Date(now);
     windowStart.setDate(windowStart.getDate() - 14);
     const windowEnd = new Date(now);
-    windowEnd.setDate(windowEnd.getDate() + 28);
+    windowEnd.setDate(windowEnd.getDate() + Math.max(28, (this.config.weeks || 0) * 7 + 7));
 
-    const allEvents = [];
+    const failed = [];
 
     for (const cal of this.config.calendars) {
       try {
         const events = await this.fetchCalendar(cal, windowStart, windowEnd);
-        allEvents.push(...events);
+        this.cache[cal.url] = { events, fetchedAt: Date.now() };
       } catch (err) {
+        failed.push(cal.name || "Calendar");
         console.error(`[MMM-MyGCalendar] Error fetching "${cal.name}":`, err.message);
       }
     }
 
+    // A failed fetch keeps that calendar's last good events, so a network blip
+    // or an expired URL never turns into an empty-looking calendar.
+    const cached = this.config.calendars.map((cal) => this.cache[cal.url]).filter(Boolean);
+    const allEvents = cached.flatMap((c) => c.events);
     allEvents.sort((a, b) => new Date(a.start) - new Date(b.start));
-    this.sendSocketNotification("GCAL_EVENTS", allEvents);
+
+    this.sendSocketNotification("GCAL_EVENTS", {
+      events: allEvents,
+      // Age of the oldest data on screen; null until any calendar has loaded.
+      updatedAt: cached.length ? Math.min(...cached.map((c) => c.fetchedAt)) : null,
+      failed,
+    });
   },
 
   async fetchCalendar(cal, windowStart, windowEnd) {
@@ -135,14 +148,17 @@ module.exports = NodeHelper.create({
       }
     }
 
+    // Private calendars never send titles, places or notes to the display.
+    const hidden = !!cal.private;
+
     return {
       id: `${item.uid || item.summary}_${start.getTime()}`,
-      title: (item.summary || "Untitled").trim(),
+      title: hidden ? this.config.privateTitle || "Busy" : (item.summary || "Untitled").trim(),
       start: start.toISOString(),
       end: end.toISOString(),
       allDay: !!allDay,
-      location: item.location || "",
-      description: item.description ? item.description.trim() : "",
+      location: hidden ? "" : item.location || "",
+      description: hidden || !item.description ? "" : item.description.trim(),
       calendarName: cal.name || "Calendar",
       calendarColor: cal.color || "#4285F4",
       eventColor: eventColor,
