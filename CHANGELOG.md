@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-10-27
+
+### Fixed
+
+- Recurring events kept the UTC time of their first occurrence: after a DST change they showed an hour off (a weekly 18:30 series created in summer showed 17:30 from 27.10.2026 on, a winter series 19:30 after the spring switch). Each occurrence is now shifted by the change in UTC offset of the series' own time zone.
+- A single occurrence moved in Google Calendar (`RECURRENCE-ID`) was shown at the series' time with its new title; it now uses its own start and end.
+
+## [1.4.0] - 2026-10-20
+
+### Added
+
+- Mirror layout (`layout: "mirror"`) for displays behind a two-way mirror: light text on black without a card, today stacked above the grid with the running or next meeting as a large hero and relative times ("in 40 min.", "Now · 25 min left") that update on the minute, a grid of `weeks` rows starting with the current week with colour bars instead of chips, and no click targets or modals.
+- `calendars[].private`: replaces titles with `privateTitle` and drops locations and notes before events reach the display.
+- Options `weeks`, `todayMaxEvents`, `nowText`, `endsInText`, `moreText`, `todayDoneText`, `staleText`, `privateTitle`, `loadingText`.
+
+### Fixed
+
+- A failed fetch no longer replaces a calendar's events with nothing: the last good events stay on screen and `staleText` shows how old they are. Until the first calendar loads, the loading state stays instead of an empty day.
+
 ## [1.3.0] - 2026-09-19
 
 ### Added

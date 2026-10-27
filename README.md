@@ -88,10 +88,11 @@ npm install
 | `calendars[].name`   | `"Calendar"`   | Display name shown in modals                                     |
 | `calendars[].url`    | —              | iCal URL from Google Calendar settings                           |
 | `calendars[].color`  | `"#4285F4"`    | Fallback hex color used when the event has no individual color   |
+| `calendars[].private`| `false`        | Set `true` to replace titles with `privateTitle` and drop locations and notes — see below |
 | `updateInterval`     | `900000` (15m) | How often to re-fetch calendar data (ms)                         |
 | `weekStartsOnMonday` | `false`        | Set `true` for Mon–Sun week layout                               |
 | `backgroundColor`    | `"#ffffff"`    | Background color of the calendar card                            |
-| `pastWeekOpacity`    | `0.45`         | Opacity of the past-week row (0 = invisible, 1 = full)           |
+| `pastWeekOpacity`    | `0.45`         | Opacity of the past-week row (0 = invisible, 1 = full); in the mirror layout, of the days already over this week |
 | `maxEventsPerDay`    | `3`            | Max chips shown per day cell (also sets the fixed slot height of every date square; overflow shown as a clickable "+N" corner badge) |
 | `fullWidth`          | `false`        | Set `true` to remove border-radius and shadow for a flush edge-to-edge look |
 | `showHeader`         | `true`         | Set `false` to hide the month-range header bar above the calendar grid |
@@ -102,7 +103,54 @@ npm install
 | `todayPanelTitle`    | `"Today"`      | Heading of the today panel                                       |
 | `todayPanelEmptyText`| `"No events today"` | Text shown when there are no events today                   |
 | `allDayText`         | `"All day"`    | Label for all-day events in the today panel and day modal        |
+| `layout`             | `"card"`       | `"mirror"` for a smart mirror read from across the room — see below |
+| `weeks`              | `3`            | Mirror layout: number of week rows, starting with the current week |
+| `todayMaxEvents`     | `4`            | Mirror layout: rows listed below the highlighted meeting before `moreText` |
+| `nowText`            | `"Now"`        | Mirror layout: label of the running meeting                      |
+| `endsInText`         | `"{time} left"`| Mirror layout: remaining time of the running meeting             |
+| `moreText`           | `"+{n} more"`  | Mirror layout: line shown when today has more than `todayMaxEvents` rows |
+| `todayDoneText`      | `"No more events today"` | Mirror layout: shown once all of today's meetings are over |
+| `staleText`          | `"As of {time}"` | Shown while a calendar fails to load, with the age of the data on screen |
+| `privateTitle`       | `"Busy"`       | Title shown for events from calendars with `private: true`       |
+| `loadingText`        | `"Loading calendar…"` | Text shown until the first calendar has loaded            |
 | `debug`              | `false`        | Log raw event properties to the MagicMirror console (useful for troubleshooting) |
+
+### Mirror layout
+
+`layout: "mirror"` is made for a display behind a two-way mirror, read from 1–2 m without touch or mouse. Everything that would light up the glass is removed: light text on black, no card, no shadows.
+
+- **Today on top.** The running meeting — or, if none, the next one — is shown large with a relative time: "in 40 min." before it starts, "Now · 25 min left" while it runs. Relative times follow `locale` (German: "in 40 Min.", "Jetzt · noch 25 Min." with the texts below) and update on the minute. The rest of today follows as a list, all-day events first and without a time; finished meetings are left out.
+- **Grid from this week.** `weeks` rows starting with the current week. Events are colour bars instead of labelled chips; multi-day events stay connected. Days already over are dimmed with `pastWeekOpacity` (`0.55` keeps them at 5.7:1).
+- **No interaction.** No click targets, hover effects or modals. `backgroundColor`, `showTodayPanel` and `todayPanelWidth` are ignored.
+- Sizes are set for a region about 1300 px wide (a 1440 px portrait panel). Text is 28–52 px; at 1.5 m, 33 px corresponds to the 11 pt minimum on a phone at arm's length.
+
+```javascript
+config: {
+  layout: "mirror",
+  locale: "de-DE",
+  weekStartsOnMonday: true,
+  showHeader: false,
+  weeks: 3,
+  pastWeekOpacity: 0.55,
+  todayPanelTitle: "Heute",
+  todayPanelEmptyText: "Keine Termine heute",
+  todayDoneText: "Keine weiteren Termine heute",
+  allDayText: "Ganztägig",
+  nowText: "Jetzt",
+  endsInText: "noch {time}",
+  moreText: "+{n} weitere",
+  staleText: "Stand {time}",
+  privateTitle: "Termin",
+  loadingText: "Kalender wird geladen …",
+  calendars: [...]
+}
+```
+
+### Private calendars and failed fetches
+
+A calendar with `private: true` never sends its titles, locations or notes to the display; its events show as `privateTitle` with their time and colour. Useful when visitors can see the screen.
+
+If a calendar can't be fetched, its last good events stay on screen and `staleText` appears with the time of the oldest data shown ("As of 14:05"). Until the first calendar has loaded, the module shows `loadingText` rather than an empty day.
 
 ### Today panel
 
@@ -180,6 +228,8 @@ Color priority order: iCal `COLOR` property (non-Google sources) → `colorRules
 ---
 
 ## Interactions
+
+The card layout only; the mirror layout has none.
 
 | Tap target          | Result                                              |
 |---------------------|-----------------------------------------------------|

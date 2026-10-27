@@ -725,3 +725,270 @@
   border-radius: 0;
   box-shadow: none;
 }
+
+/* Data age, shown only while a calendar fails to load */
+.gcal-stale {
+  margin-left: auto;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gcal-text-muted);
+}
+
+/* ══════════════════════════════════════════════
+   Mirror layout  (config: layout: "mirror")
+   Light text on black for a two-way mirror read
+   from 1–2 m: no lit surfaces, today stacked on
+   top with relative times, and a grid from the
+   current week with colour bars instead of chips.
+   Sizes assume a ~1300 px wide region (1440 px
+   portrait panel); at 1.5 m, 33 px matches the
+   11 pt minimum on a phone held at arm's length.
+   ══════════════════════════════════════════════ */
+
+.gcal-wrapper.gcal-mirror {
+  --gcal-bg:          transparent;
+  --gcal-surface:     transparent;
+  --gcal-text:        #f2f2f2;   /* 18.8:1 on black */
+  --gcal-text-muted:  #a3a3a3;   /*  8.3:1 on black */
+  --gcal-border:      #262626;   /* hairline, 1.9 % of white */
+  --gcal-today-bg:    transparent;
+  --gcal-hover:       transparent;
+  --gcal-shadow:      none;
+  --gcal-font:        var(--font-primary, "Roboto Condensed"), "Roboto", sans-serif;
+  --gcal-bar:         6px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* ── Today ─────────────────────────────────── */
+
+.gcal-mirror-today {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.gcal-mirror-today-header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  font-size: 34px;
+  color: var(--gcal-text-muted);
+}
+
+.gcal-mirror-today-title {
+  font-weight: 600;
+  color: var(--gcal-text);
+}
+
+.gcal-mirror .gcal-stale {
+  font-size: inherit;
+  font-weight: 400;
+}
+
+.gcal-mirror-bar {
+  flex: 0 0 var(--gcal-bar);
+  align-self: stretch;
+  border-radius: calc(var(--gcal-bar) / 2);
+  background: var(--ev-color);
+}
+
+.gcal-mirror-hero {
+  display: flex;
+  gap: 20px;
+}
+
+.gcal-mirror-hero-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gcal-mirror-rel {
+  display: block;
+  font-size: 34px;
+  font-weight: 600;
+  color: var(--gcal-text);
+}
+
+.gcal-mirror-hero-line {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  min-width: 0;
+  font-size: 52px;
+}
+
+.gcal-mirror-time {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--gcal-text-muted);
+}
+
+.gcal-mirror-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--gcal-text);
+}
+
+.gcal-mirror-list {
+  display: grid;
+  grid-template-columns: var(--gcal-bar) max-content minmax(0, 1fr);
+  column-gap: 20px;
+  row-gap: 14px;
+  align-items: baseline;
+  font-size: 36px;
+}
+
+.gcal-mirror-item {
+  display: contents;
+}
+
+.gcal-mirror-list .gcal-mirror-title {
+  font-weight: 500;
+}
+
+.gcal-mirror-allday {
+  grid-column: 2 / -1;
+}
+
+.gcal-mirror-note {
+  display: block;
+  padding-left: calc(var(--gcal-bar) + 20px);
+  font-size: 34px;
+  color: var(--gcal-text-muted);
+}
+
+/* ── Month grid: day numbers and colour bars ─ */
+
+.gcal-mirror .gcal-header {
+  padding: 0 0 16px;
+  border-bottom: none;
+}
+
+.gcal-mirror .gcal-month-title {
+  font-size: 34px;
+}
+
+.gcal-mirror .gcal-day-headers {
+  border-bottom-width: 1px;
+}
+
+.gcal-mirror .gcal-day-header {
+  padding: 0 0 12px;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* Horizontal padding stays 10px: multi-day bars bridge it with -10px margins. */
+.gcal-mirror .gcal-day {
+  padding: 14px 10px 18px;
+  border-right: none;
+}
+
+/* A parked (hidden) mouse cursor must not light up a cell. */
+.gcal-mirror .gcal-day.gcal-today:hover,
+.gcal-mirror .gcal-day-num-wrap:hover,
+.gcal-mirror .gcal-today .gcal-day-num-wrap:hover {
+  background-color: transparent;
+}
+
+.gcal-mirror .gcal-day-top-row {
+  justify-content: center;
+  margin-bottom: 14px;
+}
+
+.gcal-mirror .gcal-day-num-wrap {
+  padding: 0;
+  cursor: default;
+}
+
+.gcal-mirror .gcal-day-month-tag {
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.gcal-mirror .gcal-day-number {
+  width: 52px;
+  height: 52px;
+  font-size: 34px;
+}
+
+.gcal-mirror .gcal-today .gcal-day-number {
+  background-color: var(--gcal-text);
+  color: #000000;   /* 18.8:1 on the light circle */
+  font-weight: 600;
+}
+
+.gcal-mirror .gcal-day-more-badge,
+.gcal-mirror .gcal-today .gcal-day-more-badge {
+  position: absolute;
+  top: 26px;
+  right: 10px;
+  padding: 0;
+  background: none;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--gcal-text-muted);
+  cursor: default;
+}
+
+.gcal-mirror .gcal-day-events {
+  gap: 6px;
+  height: calc(var(--gcal-max-events, 3) * var(--gcal-bar) + (var(--gcal-max-events, 3) - 1) * 6px);
+}
+
+.gcal-mirror .gcal-event,
+.gcal-mirror .gcal-event:hover {
+  height: var(--gcal-bar);
+  padding: 0;
+  border: none;
+  border-radius: calc(var(--gcal-bar) / 2);
+  background: var(--ev-color);
+  transform: none;
+  cursor: default;
+}
+
+.gcal-mirror .gcal-event-dot,
+.gcal-mirror .gcal-event-label {
+  display: none;
+}
+
+.gcal-mirror .gcal-event-span:not(.gcal-event-span--start) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.gcal-mirror .gcal-event-span:not(.gcal-event-span--end) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+/* ── Loading ───────────────────────────────── */
+
+.gcal-mirror .gcal-loading-card {
+  min-height: 0;
+  justify-content: flex-start;
+}
+
+.gcal-mirror .gcal-loading {
+  padding: 0;
+  font-size: 34px;
+}
+
+.gcal-mirror .gcal-spinner {
+  display: none;
+}
