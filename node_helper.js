@@ -96,30 +96,75 @@ module.exports = NodeHelper.create({
       ? this.toDate(item.end) - this.toDate(item.start)
       : 0;
 
+    // rrule repeats DTSTART at a fixed UTC time. For a series in a zone with
+    // DST that is an hour off on the other side of a switch: a weekly 18:30
+    // CEST series came out at 17:30 after 25.10.2026. Shift every occurrence
+    // by the change of the UTC offset between DTSTART and the occurrence, in
+    // the series' own time zone. All-day series and UTC series need nothing.
+    const dtstart = this.toDate(item.start);
+    const tz = item.datetype === "date" ? null : this.zoneOf(item.start);
+    const startOffset = tz ? this.utcOffsetMinutes(dtstart, tz) : 0;
+
     for (const date of occurrences) {
+      let occStart = new Date(date);
+      if (tz) {
+        const shift = startOffset - this.utcOffsetMinutes(occStart, tz);
+        if (shift) occStart = new Date(occStart.getTime() + shift * 60 * 1000);
+      }
+      const dateStr = occStart.toDateString();
+
       // Skip EXDATE exceptions
       if (item.exdate) {
-        const dateStr = date.toDateString();
         const isException = Object.values(item.exdate).some(
           (ex) => new Date(ex).toDateString() === dateStr
         );
         if (isException) continue;
       }
 
-      // Use modified recurrence if it exists
-      let src = item;
+      // A single occurrence moved in Google Calendar (RECURRENCE-ID) carries
+      // its own start and end; the rule's time does not apply to it.
       if (item.recurrences) {
-        const dateStr = date.toDateString();
         const match = Object.entries(item.recurrences).find(
           ([k]) => new Date(k).toDateString() === dateStr
         );
-        if (match) src = match[1];
+        if (match) {
+          const src = match[1];
+          const s = this.toDate(src.start);
+          const e = src.end ? this.toDate(src.end) : new Date(s.getTime() + duration);
+          if (s <= windowEnd && e >= windowStart) events.push(this.buildEvent(src, s, e, cal));
+          continue;
+        }
       }
 
-      const occStart = new Date(date);
       const occEnd = new Date(occStart.getTime() + duration);
-      events.push(this.buildEvent(src, occStart, occEnd, cal));
+      events.push(this.buildEvent(item, occStart, occEnd, cal));
     }
+  },
+
+  // IANA zone of a node-ical start value: its TZID, else the Pi's own zone
+  // (floating times). UTC ("Z") values come back as "Etc/UTC" and need no shift.
+  zoneOf(start) {
+    const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const tz = start && start.tz ? String(start.tz) : local;
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: tz });
+      return tz;
+    } catch (e) {
+      return local; // e.g. a Windows zone name Intl does not know
+    }
+  },
+
+  // UTC offset of `tz` at instant `date`, in minutes (Europe/Berlin: 60 or 120).
+  utcOffsetMinutes(date, tz) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hourCycle: "h23",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    }).formatToParts(date);
+    const v = Object.fromEntries(parts.map((p) => [p.type, Number(p.value)]));
+    const asUtc = Date.UTC(v.year, v.month - 1, v.day, v.hour, v.minute, v.second);
+    return Math.round((asUtc - Math.floor(date.getTime() / 1000) * 1000) / 60000);
   },
 
   buildEvent(item, start, end, cal) {

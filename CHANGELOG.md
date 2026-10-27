@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.1] - 2026-10-27
+
+### Fixed
+
+- Recurring events kept the UTC time of their first occurrence: after a DST change they showed an hour off (a weekly 18:30 series created in summer showed 17:30 from 27.10.2026 on, a winter series 19:30 after the spring switch). Each occurrence is now shifted by the change in UTC offset of the series' own time zone.
+- A single occurrence moved in Google Calendar (`RECURRENCE-ID`) was shown at the series' time with its new title; it now uses its own start and end.
+
 ## [1.4.0] - 2026-10-20
 
 ### Added
